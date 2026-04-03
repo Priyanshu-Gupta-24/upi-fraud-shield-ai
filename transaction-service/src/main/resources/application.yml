@@ -1,0 +1,99 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: transaction-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/upifraudshieldai_db
+    username: user
+    password: pass
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    admin:
+      fail-fast: false
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+    consumer:
+      group-id: transaction-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+  cloud:
+    openfeign:
+      circuitbreaker:
+        enabled: true
+      client:
+        config:
+          fraud-service:
+            connect-timeout: 5000
+            read-timeout: 60000
+
+
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: 86400000
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${server.port}
+
+kafka:
+  topics:
+    transaction-created: transaction-created
+    fraud-result: fraud-result
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+
+logging:
+  level:
+    com.priyanshu: DEBUG
+    org.springframework.security: INFO
+    org.apache.kafka.clients.NetworkClient: WARN
+    org.apache.kafka.clients.producer: WARN
+
+resilience4j:
+  timelimiter:
+    configs:
+      default:
+        timeout-duration: 300s
+    instances:
+      FraudServiceClientcheckFraudFraudCheckRequest:
+        timeout-duration: 300s
