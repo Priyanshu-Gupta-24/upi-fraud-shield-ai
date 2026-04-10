@@ -1,0 +1,151 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      connect-timeout: 2s
+      timeout: 2s
+
+  cloud:
+    gateway:
+
+      server:
+        webflux:
+
+          routes:
+
+            # HEALTH ROUTES (NO AUTH)
+            - id: user-health
+              uri: lb://user-service
+              order: -1
+              predicates:
+                - Path=/api/auth/health
+                - Method=GET
+
+            - id: transaction-health
+              uri: lb://transaction-service
+              order: -1
+              predicates:
+                - Path=/api/transactions/health
+                - Method=GET
+
+            - id: fraud-health
+              uri: lb://fraud-service
+              order: -1
+              predicates:
+                - Path=/api/fraud/health
+                - Method=GET
+
+
+            # PUBLIC AUTH ROUTES (NO JWT)
+            # IMPORTANT: No wildcard → prevents conflict with /health
+            - id: user-service-auth
+              uri: lb://user-service
+              order: 1
+              predicates:
+                - Path=/api/auth/login,/api/auth/register
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: 10
+                    redis-rate-limiter.burstCapacity: 20
+                    redis-rate-limiter.requestedTokens: 1
+                    key-resolver: "#{@ipKeyResolver}"
+
+
+            # USER SERVICE (PROTECTED)
+            - id: user-service-protected
+              uri: lb://user-service
+              order: 2
+              predicates:
+                - Path=/api/users/**
+              filters:
+                - JwtAuth
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: 20
+                    redis-rate-limiter.burstCapacity: 40
+                    redis-rate-limiter.requestedTokens: 1
+                    key-resolver: "#{@userKeyResolver}"
+
+
+            # TRANSACTION SERVICE
+            - id: transaction-service
+              uri: lb://transaction-service
+              order: 2
+              predicates:
+                - Path=/api/transactions/**
+              filters:
+                - JwtAuth
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: 20
+                    redis-rate-limiter.burstCapacity: 30
+                    redis-rate-limiter.requestedTokens: 1
+                    key-resolver: "#{@userKeyResolver}"
+
+
+            # FRAUD SERVICE
+            - id: fraud-service
+              uri: lb://fraud-service
+              order: 2
+              predicates:
+                - Path=/api/fraud/**
+              filters:
+                - JwtAuth
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: 10
+                    redis-rate-limiter.burstCapacity: 20
+                    redis-rate-limiter.requestedTokens: 1
+                    key-resolver: "#{@userKeyResolver}"
+          default-filters:
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+          globalcors:
+            cors-configurations:
+              '[/**]':
+                          allowedOrigins: "http://localhost:4200"
+                          allowedMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+                          allowedHeaders: "*"
+                          allowCredentials: true
+                          maxAge: 3600
+
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${server.port}
+
+
+jwt:
+  secret: ${JWT_SECRET}
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      access: unrestricted
+
+
+logging:
+  level:
+    com.priyanshu: DEBUG
+    org.springframework.cloud.gateway: INFO
+    reactor.netty: WARN
